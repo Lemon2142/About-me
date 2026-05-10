@@ -1,49 +1,238 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Leiman – Contact</title>
     <style>
-        /* This creates the faded background layer */
-        body::before {
-            content: "";
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            /* Replace 4337.gif with your exact filename if different */
-            background-image: url('4337.gif'); 
-            background-size: cover;
-            background-position: center;
-            opacity: 0.15; /* This sets your 15% translucency */
-            z-index: -1; /* Keeps it behind your text */
-        }
-
         body {
-            font-family: sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
             line-height: 1.6;
             padding: 20px;
             max-width: 600px;
             margin: 0 auto;
             color: #333;
+            background-color: #fdfdfd;
         }
+        canvas#wireframe {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: -1;
+            display: block;
+            pointer-events: none;
+            opacity: 0.35;
+        }
+        h1, h2 { text-align: center; }
+        a { color: #0076ff; text-decoration: none; }
+        a:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
-    <h1>Hello World</h1>
-    <p>This is my personal landing page on GitHub.</p>
-    
-    <h2>What is this?</h2>
-    <p>I have always wanted to host my own webpage and recently got 
-    the inspiration to do it after I bought a nifty little e-reader 
-    which doubles as a name tag. After using a QR code generator and setting a custom wallpaper 
-    I was able to turn it into a great way to share my details at events
-    and also have a point of contact if in case I leave the little guy behind.</p>
-    
-    <h2>Who are you?</h2>
-    <p>My name is Leiman and you can contact me at 
-    <a href="mailto:L.clayton@outlook.com.au">L.clayton@outlook.com.au</a></p>
-    <p>If I have left my e-reader behind would you kindly get in touch and send me a
-    picture of where I left it? Cheers!</p>
+    <canvas id="wireframe"></canvas>
+
+    <main>
+        <h1>Hello World</h1>
+        <p>This is my personal landing page on GitHub.</p>
+
+        <h2>What is this?</h2>
+        <p>I have always wanted to host my own webpage and recently got 
+        the inspiration to do it after I bought a nifty little e-reader 
+        which doubles as a name tag. After using a QR code generator and setting a custom wallpaper 
+        I was able to turn it into a great way to share my details at events
+        and also have a point of contact if in case I leave the little guy behind.</p>
+
+        <h2>Who are you?</h2>
+        <p>My name is Leiman, I am a pharmacy student and the PhUNE education officer. You can contact me at 
+        <a href="mailto:L.clayton@outlook.com.au">L.clayton@outlook.com.au</a></p>
+        <p>If I have left my e-reader behind would you kindly get in touch and send me a
+        picture of where I left it? Cheers!</p>
+    </main>
+
+    <script>
+        (function() {
+            const canvas = document.getElementById('wireframe');
+            const ctx = canvas.getContext('2d');
+
+            // ---- Resize ----
+            function resize() {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+            }
+            window.addEventListener('resize', resize);
+            resize();
+
+            // ---- Capsule parameters ----
+            const radius = 1.0;           // radius of the cylinder and caps
+            const halfBody = 1.5;         // half the height of the straight cylinder part
+            // Total half‑height from centre to pole = halfBody + radius
+            const halfTotal = halfBody + radius;
+
+            // ---- Geometry container ----
+            const vertices = [];  // each vertex: { x, y, z }
+            const faces = [];     // each face: { indices[], isTop (boolean) }
+
+            // ---- Build vertices (from bottom pole to top pole) ----
+            const layers = 18;    // number of horizontal rings (must be > 0, even works best)
+            for (let l = 0; l <= layers; l++) {
+                // t = 0 at bottom pole, 1 at top pole
+                const t = l / layers;
+                const y = -halfTotal + t * 2 * halfTotal;   // y coordinate of this ring
+
+                // Calculate the radius of the capsule at this y
+                let ringRadius;
+                if (Math.abs(y) <= halfBody) {
+                    // Straight cylindrical body
+                    ringRadius = radius;
+                } else {
+                    // Hemispherical cap
+                    const d = Math.abs(y) - halfBody;   // distance into the cap
+                    if (d >= radius) ringRadius = 0;     // exactly at the pole
+                    else ringRadius = Math.sqrt(radius * radius - d * d);
+                }
+
+                // If ringRadius is (almost) zero, this is a pole – store a single vertex
+                if (ringRadius < 0.001) {
+                    vertices.push({ x: 0, y, z: 0 });
+                } else {
+                    // Full ring: place $segments points around the circle
+                    const segs = 16;        // number of segments around the capsule
+                    for (let i = 0; i < segs; i++) {
+                        const angle = (i / segs) * Math.PI * 2;
+                        vertices.push({
+                            x: ringRadius * Math.cos(angle),
+                            y,
+                            z: ringRadius * Math.sin(angle)
+                        });
+                    }
+                }
+            }
+
+            // ---- Helper: get index of the first vertex in a given layer ----
+            const segmentCount = 16; // must match the number used above
+            const startOfLayer = [];
+            let idx = 0;
+            for (let l = 0; l <= layers; l++) {
+                startOfLayer[l] = idx;
+                const t = l / layers;
+                const y = -halfTotal + t * 2 * halfTotal;
+                const d = Math.abs(y) - halfBody;
+                const hasRing = (d < radius); // true if not a pole
+                idx += hasRing ? segmentCount : 1;
+            }
+
+            // ---- Build faces between consecutive layers ----
+            for (let l = 0; l < layers; l++) {
+                const base0 = startOfLayer[l];
+                const base1 = startOfLayer[l + 1];
+
+                // Determine if each layer is a ring (many vertices) or a pole (one vertex)
+                const size0 = startOfLayer[l + 1] - startOfLayer[l]; // for checking (will be re-calculated)
+                // Actually we can directly know from the vertex counts:
+                const isPole0 = ( (l === 0) ? true : (startOfLayer[l + 1] - startOfLayer[l]) === 1 );
+                const isPole1 = ( (l === layers) ? true : (startOfLayer[l + 2] - startOfLayer[l + 1]) === 1 ); // careful for last layer
+
+                // Simpler: use a precomputed array of pole flags
+                const poleFlag = [];
+                for (let i = 0; i <= layers; i++) {
+                    const cnt = (i < layers) ? startOfLayer[i + 1] - startOfLayer[i] : 1;
+                    poleFlag[i] = (cnt === 1);
+                }
+                const pole0 = poleFlag[l];
+                const pole1 = poleFlag[l + 1];
+
+                // Representative y for colour: midpoint between the two rings
+                const y0 = vertices[base0].y;
+                const y1 = vertices[base1].y;
+                const midY = (y0 + y1) / 2;
+                // Medicine‑capsule: top half (y > 0) one colour, bottom half (y < 0) another
+                const isTop = (midY > 0);   // faces on the equator (midY == 0) are rare, we assign to bottom
+
+                if (!pole0 && !pole1) {
+                    // Two full rings → create quads
+                    const n = segmentCount;
+                    for (let i = 0; i < n; i++) {
+                        const a = base0 + i;
+                        const b = base0 + (i + 1) % n;
+                        const c = base1 + (i + 1) % n;
+                        const d = base1 + i;
+                        faces.push({ indices: [a, b, c, d], isTop });
+                    }
+                } else if (pole0 && !pole1) {
+                    // Bottom layer is a pole → triangle fan (pole, ring vertex, next ring vertex)
+                    for (let i = 0; i < segmentCount; i++) {
+                        const poleIdx = base0;
+                        const a = base1 + i;
+                        const b = base1 + (i + 1) % segmentCount;
+                        faces.push({ indices: [poleIdx, a, b], isTop });
+                    }
+                } else if (!pole0 && pole1) {
+                    // Top layer is a pole → triangle fan (ring vertex, next ring vertex, pole)
+                    for (let i = 0; i < segmentCount; i++) {
+                        const a = base0 + i;
+                        const b = base0 + (i + 1) % segmentCount;
+                        const poleIdx = base1;
+                        faces.push({ indices: [a, b, poleIdx], isTop });
+                    }
+                }
+                // (both poles can't happen here)
+            }
+
+            // ---- Animation & drawing ----
+            function draw() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                const time = Date.now() * 0.0005;
+                const scale = Math.min(canvas.width, canvas.height) * 0.10;
+
+                // Transform vertices: rotate & perspective
+                const transformed = vertices.map(v => {
+                    let x = v.x, y = v.y, z = v.z;
+                    // Two‑axis rotation for a tumbling effect
+                    let x1 = x * Math.cos(time) - z * Math.sin(time);
+                    let z1 = x * Math.sin(time) + z * Math.cos(time);
+                    let y1 = y * Math.cos(time * 0.5) - z1 * Math.sin(time * 0.5);
+                    let z2 = y * Math.sin(time * 0.5) + z1 * Math.cos(time * 0.5);
+
+                    const persp = 5 / (5 - z2);
+                    return {
+                        x: x1 * persp * scale + canvas.width / 2,
+                        y: y1 * persp * scale + canvas.height / 2,
+                        z: z2
+                    };
+                });
+
+                // Painter’s algorithm: sort faces back‑to‑front
+                faces.sort((a, b) => {
+                    const az = a.indices.reduce((s, i) => s + transformed[i].z, 0);
+                    const bz = b.indices.reduce((s, i) => s + transformed[i].z, 0);
+                    return az - bz;
+                });
+
+                // Colours for the two halves
+                const topColour = [0, 118, 255];     // blue
+                const bottomColour = [255, 59, 48];  // red
+
+                faces.forEach(f => {
+                    ctx.beginPath();
+                    ctx.moveTo(transformed[f.indices[0]].x, transformed[f.indices[0]].y);
+                    for (let i = 1; i < f.indices.length; i++) {
+                        ctx.lineTo(transformed[f.indices[i]].x, transformed[f.indices[i]].y);
+                    }
+                    ctx.closePath();
+
+                    const col = f.isTop ? topColour : bottomColour;
+                    ctx.fillStyle = `rgba(${col[0]}, ${col[1]}, ${col[2]}, 0.3)`;
+                    ctx.strokeStyle = `rgba(${col[0]}, ${col[1]}, ${col[2]}, 0.6)`;
+                    ctx.fill();
+                    ctx.stroke();
+                });
+
+                requestAnimationFrame(draw);
+            }
+            draw();
+        })();
+    </script>
 </body>
 </html>
